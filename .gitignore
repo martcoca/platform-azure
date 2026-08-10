@@ -6,3 +6,6 @@ config/local/
 crash.log
 *.tfplan
 *.plan.json
+
+# Bootstrap-only backend override; see README "First run".
+*_override.tf
