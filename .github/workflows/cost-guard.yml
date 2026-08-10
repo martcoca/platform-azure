@@ -1,0 +1,60 @@
+name: Cost guard
+
+on:
+  pull_request:
+  push:
+
+jobs:
+  fixtures:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject a denylisted resource
+        run: |
+          if bash scripts/cost-guard.sh tests/fixtures/plan-with-nat.json; then
+            echo "Expected the NAT Gateway fixture to be rejected." >&2
+            exit 1
+          fi
+      - name: Reject a denylisted resource from plan event JSON
+        run: |
+          if bash scripts/cost-guard.sh tests/fixtures/plan-events-with-nat.jsonl; then
+            echo "Expected the NAT Gateway plan event to be rejected." >&2
+            exit 1
+          fi
+      - name: Accept the clean fixture
+        run: bash scripts/cost-guard.sh tests/fixtures/plan-clean.json
+      - name: Refuse a plan that reported errors
+        run: |
+          if bash scripts/cost-guard.sh tests/fixtures/plan-errored.jsonl; then
+            echo "Expected an errored plan to be refused, not reported clean." >&2
+            exit 1
+          fi
+      - name: Refuse unrecognizable input
+        run: |
+          if bash scripts/cost-guard.sh tests/fixtures/plan-unrecognizable.txt; then
+            echo "Expected unrecognizable input to be refused." >&2
+            exit 1
+          fi
+      - name: Refuse empty input
+        run: |
+          : > "$RUNNER_TEMP/empty.json"
+          if bash scripts/cost-guard.sh "$RUNNER_TEMP/empty.json"; then
+            echo "Expected empty input to be refused." >&2
+            exit 1
+          fi
+
+  denylist-agreement:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: The Policy denylist and the guard denylist must agree
+        run: bash scripts/check-denylist-agreement.sh
+      - name: The agreement check must be able to fail
+        run: |
+          jq 'map(select(.resource_type != "azurerm_firewall"))' \
+            config/cost-guard-denylist.json > "$RUNNER_TEMP/holed.json"
+          cp "$RUNNER_TEMP/holed.json" config/cost-guard-denylist.json
+          if bash scripts/check-denylist-agreement.sh; then
+            echo "Expected a hole in the guard denylist to be reported." >&2
+            exit 1
+          fi

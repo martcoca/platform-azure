@@ -1,0 +1,37 @@
+name: Verify keyless Azure identity
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Assert the signed-in principal is the federated application
+        env:
+          EXPECTED_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(az account show --query user.name -o tsv)"
+          test "$actual" = "$EXPECTED_CLIENT_ID"
+
+      - name: Assert no client secret was used
+        shell: bash
+        run: |
+          set -euo pipefail
+          # A federated login has no secret to leak. If one is ever configured on the
+          # application, this repository's identity story has quietly changed.
+          count="$(az ad app credential list --id "${{ secrets.AZURE_CLIENT_ID }}" \
+            --query 'length(@)' -o tsv 2>/dev/null || echo 0)"
+          test "$count" = "0"

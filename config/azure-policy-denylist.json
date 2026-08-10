@@ -1,0 +1,60 @@
+[
+  {
+    "azure_type": "Microsoft.Network/applicationGateways",
+    "tofu_types": ["azurerm_application_gateway"]
+  },
+  {
+    "azure_type": "Microsoft.Network/loadBalancers",
+    "tofu_types": ["azurerm_lb"]
+  },
+  {
+    "azure_type": "Microsoft.Network/natGateways",
+    "tofu_types": ["azurerm_nat_gateway"]
+  },
+  {
+    "azure_type": "Microsoft.Network/azureFirewalls",
+    "tofu_types": ["azurerm_firewall"]
+  },
+  {
+    "azure_type": "Microsoft.Network/expressRouteCircuits",
+    "tofu_types": ["azurerm_express_route_circuit"]
+  },
+  {
+    "azure_type": "Microsoft.Network/publicIPAddresses",
+    "tofu_types": ["azurerm_public_ip"]
+  },
+  {
+    "azure_type": "Microsoft.Sql/servers/databases",
+    "tofu_types": ["azurerm_mssql_database"]
+  },
+  {
+    "azure_type": "Microsoft.Sql/managedInstances",
+    "tofu_types": ["azurerm_mssql_managed_instance"]
+  },
+  {
+    "azure_type": "Microsoft.DBforMySQL/flexibleServers",
+    "tofu_types": ["azurerm_mysql_flexible_server"]
+  },
+  {
+    "azure_type": "Microsoft.DBforPostgreSQL/flexibleServers",
+    "tofu_types": ["azurerm_postgresql_flexible_server"]
+  },
+  {
+    "azure_type": "Microsoft.ContainerService/managedClusters",
+    "tofu_types": ["azurerm_kubernetes_cluster"]
+  },
+  {
+    "azure_type": "Microsoft.Compute/virtualMachines",
+    "tofu_types": [
+      "azurerm_linux_virtual_machine",
+      "azurerm_windows_virtual_machine"
+    ]
+  },
+  {
+    "azure_type": "Microsoft.Compute/virtualMachineScaleSets",
+    "tofu_types": [
+      "azurerm_linux_virtual_machine_scale_set",
+      "azurerm_windows_virtual_machine_scale_set"
+    ]
+  }
+]
