@@ -13,7 +13,8 @@ jobs:
   plan:
     runs-on: ubuntu-latest
     env:
-      ARM_USE_OIDC: true
+      ARM_USE_OIDC: "true"
+      ARM_STORAGE_USE_AZUREAD: "true"
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
@@ -48,17 +49,17 @@ jobs:
         run: |
           set -euo pipefail
           set +e
-          tofu plan -input=false -no-color -json | bash scripts/cost-guard.sh /dev/stdin \
+          tofu plan -input=false -no-color -json 2>"$RUNNER_TEMP/tofu-plan.err" | bash scripts/cost-guard.sh /dev/stdin \
             >"$RUNNER_TEMP/cost-guard.out" 2>"$RUNNER_TEMP/cost-guard.err"
           statuses=("${PIPESTATUS[@]}")
           set -e
 
           if [[ "${statuses[0]}" -ne 0 ]]; then
-            echo "plan failure"
+            echo "plan failure" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
           case "${statuses[1]}" in
-            0) echo "allow" ;;
-            1) echo "deny"; exit 1 ;;
-            *) echo "undecidable"; exit 1 ;;
+            0) echo "allow" >> "$GITHUB_STEP_SUMMARY" ;;
+            1) echo "deny" >> "$GITHUB_STEP_SUMMARY"; exit 1 ;;
+            *) echo "undecidable" >> "$GITHUB_STEP_SUMMARY"; exit 1 ;;
           esac

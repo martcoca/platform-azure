@@ -9,3 +9,4 @@ crash.log
 
 # Bootstrap-only backend override; see README "First run".
 *_override.tf
+!config/example/backend_bootstrap_override.tf

@@ -11,7 +11,7 @@
 # disabled, so there is no account key for the backend to fall back to.
 terraform {
   backend "azurerm" {
-    key              = "landing-zone.tfstate"
+    key              = "platform-azure/landing-zone.tfstate"
     use_azuread_auth = true
   }
 }

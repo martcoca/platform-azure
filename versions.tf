@@ -14,8 +14,9 @@ terraform {
 }
 
 provider "azurerm" {
-  subscription_id = var.azure_subscription_id
-  tenant_id       = var.azure_tenant_id
+  subscription_id                 = var.azure_subscription_id
+  tenant_id                       = var.azure_tenant_id
+  resource_provider_registrations = "none"
   features {}
 }
 

@@ -95,11 +95,14 @@ tenant, organization, or repository ID belongs in a tracked file.
 ## First run
 
 The state container is created by this root, so the first apply runs on local state and
-is then migrated:
+is then migrated. In a fresh checkout, first copy the tracked bootstrap template to the
+ignored root override:
 
 ```bash
+cp config/example/backend_bootstrap_override.tf backend_bootstrap_override.tf
 tofu init
 tofu apply -var-file=config/local/landing-zone.tfvars
+rm backend_bootstrap_override.tf
 tofu init \
   -backend-config="resource_group_name=<resource group>" \
   -backend-config="storage_account_name=<state storage account>" \
@@ -109,6 +112,36 @@ tofu init \
 
 Applying this root creates identity and role assignments, which are human-reserved work
 under ADR-0021. An agent prepares and plans it; a human applies it.
+
+## CI contract
+
+After the human apply and state migration, transfer the workflow values without printing
+them with:
+
+```bash
+scripts/publish-github-secrets.sh <owner/repository>
+```
+
+The helper sets only these repository secrets: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`,
+`AZURE_SUBSCRIPTION_ID`, `AZURE_RESOURCE_GROUP`, `AZURE_STATE_STORAGE_ACCOUNT`,
+`AZURE_STATE_CONTAINER`, and `AZURE_GITHUB_OIDC_SUBJECT`.
+
+The guarded plan runs only on pushes to `main` and manual dispatch. It authenticates with
+OIDC, runs a guarded plan, and never applies. The post-apply live evidence still needed
+is the human credential-inventory check and successful identity and guarded-plan workflow
+runs.
+
+## Local checks
+
+Run these without cloud authentication:
+
+```bash
+tofu fmt -check -recursive .
+tofu validate
+scripts/test-cost-guard.sh
+scripts/check-denylist-agreement.sh
+scripts/check-ci-contract.sh
+```
 
 ## A fresh subscription registers nothing
 
