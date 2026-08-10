@@ -2,7 +2,7 @@
 # runs against local state and is then migrated:
 #
 #   tofu init \
-#     -backend-config="resource_group_name=martcoca-platform" \
+#     -backend-config="resource_group_name=<resource group>" \
 #     -backend-config="storage_account_name=<state storage account>" \
 #     -backend-config="container_name=tfstate" \
 #     -migrate-state
@@ -11,7 +11,7 @@
 # disabled, so there is no account key for the backend to fall back to.
 terraform {
   backend "azurerm" {
-    key              = "platform-azure/landing-zone.tfstate"
+    key              = "landing-zone.tfstate"
     use_azuread_auth = true
   }
 }

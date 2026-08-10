@@ -1,0 +1,64 @@
+name: Guarded OpenTofu plan
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    env:
+      ARM_USE_OIDC: true
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      TF_VAR_azure_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      TF_VAR_azure_tenant_id: ${{ secrets.AZURE_TENANT_ID }}
+      TF_VAR_resource_group_name: ${{ secrets.AZURE_RESOURCE_GROUP }}
+      TF_VAR_state_storage_account_name: ${{ secrets.AZURE_STATE_STORAGE_ACCOUNT }}
+      TF_VAR_state_container_name: ${{ secrets.AZURE_STATE_CONTAINER }}
+      TF_VAR_github_oidc_subject: ${{ secrets.AZURE_GITHUB_OIDC_SUBJECT }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: 1.12.5
+          tofu_wrapper: false
+      - name: Initialize the AzureRM backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          tofu init -input=false -no-color \
+            -backend-config="resource_group_name=${TF_VAR_resource_group_name}" \
+            -backend-config="storage_account_name=${TF_VAR_state_storage_account_name}" \
+            -backend-config="container_name=${TF_VAR_state_container_name}" \
+            >"$RUNNER_TEMP/tofu-init.log" 2>&1
+      - name: Run the guarded plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          tofu plan -input=false -no-color -json | bash scripts/cost-guard.sh /dev/stdin \
+            >"$RUNNER_TEMP/cost-guard.out" 2>"$RUNNER_TEMP/cost-guard.err"
+          statuses=("${PIPESTATUS[@]}")
+          set -e
+
+          if [[ "${statuses[0]}" -ne 0 ]]; then
+            echo "plan failure"
+            exit 1
+          fi
+          case "${statuses[1]}" in
+            0) echo "allow" ;;
+            1) echo "deny"; exit 1 ;;
+            *) echo "undecidable"; exit 1 ;;
+          esac

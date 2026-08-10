@@ -9,39 +9,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Reject a denylisted resource
-        run: |
-          if bash scripts/cost-guard.sh tests/fixtures/plan-with-nat.json; then
-            echo "Expected the NAT Gateway fixture to be rejected." >&2
-            exit 1
-          fi
-      - name: Reject a denylisted resource from plan event JSON
-        run: |
-          if bash scripts/cost-guard.sh tests/fixtures/plan-events-with-nat.jsonl; then
-            echo "Expected the NAT Gateway plan event to be rejected." >&2
-            exit 1
-          fi
-      - name: Accept the clean fixture
-        run: bash scripts/cost-guard.sh tests/fixtures/plan-clean.json
-      - name: Refuse a plan that reported errors
-        run: |
-          if bash scripts/cost-guard.sh tests/fixtures/plan-errored.jsonl; then
-            echo "Expected an errored plan to be refused, not reported clean." >&2
-            exit 1
-          fi
-      - name: Refuse unrecognizable input
-        run: |
-          if bash scripts/cost-guard.sh tests/fixtures/plan-unrecognizable.txt; then
-            echo "Expected unrecognizable input to be refused." >&2
-            exit 1
-          fi
-      - name: Refuse empty input
-        run: |
-          : > "$RUNNER_TEMP/empty.json"
-          if bash scripts/cost-guard.sh "$RUNNER_TEMP/empty.json"; then
-            echo "Expected empty input to be refused." >&2
-            exit 1
-          fi
+      - name: Assert exact cost-guard exit codes
+        run: bash scripts/test-cost-guard.sh
 
   denylist-agreement:
     runs-on: ubuntu-latest

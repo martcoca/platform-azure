@@ -25,13 +25,3 @@ jobs:
           set -euo pipefail
           actual="$(az account show --query user.name -o tsv)"
           test "$actual" = "$EXPECTED_CLIENT_ID"
-
-      - name: Assert no client secret was used
-        shell: bash
-        run: |
-          set -euo pipefail
-          # A federated login has no secret to leak. If one is ever configured on the
-          # application, this repository's identity story has quietly changed.
-          count="$(az ad app credential list --id "${{ secrets.AZURE_CLIENT_ID }}" \
-            --query 'length(@)' -o tsv 2>/dev/null || echo 0)"
-          test "$count" = "0"

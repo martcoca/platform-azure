@@ -1,13 +1,10 @@
-# platform-azure
+# Azure landing zone
 
 Per-cloud Azure landing zone for keyless GitHub Actions federation, remote OpenTofu
 state, and zero-cost guardrails.
 
-Third of three platform repositories, alongside
-[platform-aws](https://github.com/martcoca/platform-aws) and
-[platform-gcp](https://github.com/martcoca/platform-gcp). Same job, different provider
-primitives — and on cost control, a materially different design, because Azure is the
-one cloud of the three that cannot be capped.
+This root provides an Azure landing zone with provider-native cost controls, keyless
+GitHub Actions federation, and remote OpenTofu state.
 
 ## Azure cannot be capped, so it is fenced instead
 
@@ -104,7 +101,7 @@ is then migrated:
 tofu init
 tofu apply -var-file=config/local/landing-zone.tfvars
 tofu init \
-  -backend-config="resource_group_name=martcoca-platform" \
+  -backend-config="resource_group_name=<resource group>" \
   -backend-config="storage_account_name=<state storage account>" \
   -backend-config="container_name=tfstate" \
   -migrate-state

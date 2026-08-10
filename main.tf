@@ -29,7 +29,7 @@ resource "azuread_application" "ci" {
   display_name     = "github-actions-platform-azure"
   sign_in_audience = "AzureADMyOrg"
 
-  description = "Keyless CI identity for ${var.github_repository}. No secret; federated only."
+  description = "Keyless CI identity. No secret; federated only."
 }
 
 resource "azuread_service_principal" "ci" {
@@ -39,7 +39,7 @@ resource "azuread_service_principal" "ci" {
 resource "azuread_application_federated_identity_credential" "github" {
   application_id = azuread_application.ci.id
   display_name   = "github-main"
-  description    = "GitHub Actions on the main branch of ${var.github_repository}."
+  description    = "GitHub Actions on the authorized main branch."
   audiences      = ["api://AzureADTokenExchange"]
   issuer         = "https://token.actions.githubusercontent.com"
   subject        = var.github_oidc_subject

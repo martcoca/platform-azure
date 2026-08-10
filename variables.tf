@@ -11,7 +11,6 @@ variable "azure_tenant_id" {
 variable "resource_group_name" {
   description = "Pre-existing bootstrap resource group."
   type        = string
-  default     = "martcoca-platform"
 }
 
 variable "location" {
@@ -29,12 +28,6 @@ variable "state_container_name" {
   description = "Blob container for OpenTofu state."
   type        = string
   default     = "tfstate"
-}
-
-variable "github_repository" {
-  description = "owner/name of the repository CI runs from, for naming and display only."
-  type        = string
-  default     = "martcoca/platform-azure"
 }
 
 variable "github_oidc_subject" {
