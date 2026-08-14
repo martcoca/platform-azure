@@ -53,8 +53,26 @@ if ! grep -Fq 'REDACTED-' config/example/landing-zone.tfvars; then
   printf 'The public input example must use redacted placeholders.\n' >&2
   exit 1
 fi
-if rg -n --hidden --glob '!.git/**' --glob '!.agentic/**' --glob '!config/local/**' --glob '!.terraform/**' 'https://github\.com/' . >/dev/null; then
-  printf 'Committed GitHub repository URLs are not permitted.\n' >&2
+# Committed GitHub URLs are checked with `git grep`, not ripgrep.
+#
+# `if rg ...` fails open: where ripgrep is absent the shell returns 127, the branch is
+# simply not taken, and this required assertion silently passes. It was passing that way
+# on the authoring machine and would do the same on any runner without ripgrep installed.
+#
+# git grep also matches the requirement more exactly — the rule is about *committed*
+# content — and needs no exclusion list for .git, .terraform, or the ignored local
+# config, because it only ever searches tracked files.
+command -v git >/dev/null 2>&1 || {
+  printf 'check-ci-contract requires git to verify committed content.\n' >&2
+  exit 2
+}
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
+  printf 'check-ci-contract must run inside the repository work tree.\n' >&2
+  exit 2
+}
+if git grep -nI -e 'https://github\.com/' -- . >/dev/null 2>&1; then
+  printf 'Committed GitHub repository URLs are not permitted:\n' >&2
+  git grep -nI -e 'https://github\.com/' -- . >&2
   exit 1
 fi
 
