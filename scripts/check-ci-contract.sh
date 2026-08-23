@@ -120,20 +120,108 @@ for secret_var in \
 done
 require 'tofu init -input=false -no-color' "$workflow"
 require '>"$RUNNER_TEMP/tofu-init.log" 2>&1' "$workflow"
-require 'tofu plan -input=false -no-color -json 2>"$RUNNER_TEMP/tofu-plan.err" | bash scripts/cost-guard.sh /dev/stdin' "$workflow"
-require '>"$RUNNER_TEMP/cost-guard.out" 2>"$RUNNER_TEMP/cost-guard.err"' "$workflow"
-require 'statuses=("${PIPESTATUS[@]}")' "$workflow"
+# --- the cost guard is consumed, not carried -------------------------------------------
+#
+# The guard and its denylist live in the released cost-guard action. Three things have to
+# hold and none of them is visible from a diff of this file alone: no copy is committed
+# here, every workflow uses the same pinned release, and the guard step is still a gate
+# rather than a decoration.
+
+for gone in scripts/cost-guard.sh config/cost-guard-denylist.json; do
+  if [[ -e "$gone" ]] || git ls-files --error-unmatch "$gone" >/dev/null 2>&1; then
+    printf '%s is back. The guard travels with the action; a local copy is the\n' "$gone" >&2
+    printf 'duplication that extracting it removed.\n' >&2
+    exit 1
+  fi
+done
+
+pin_file=config/cost-guard-action.txt
+[[ -f "$pin_file" ]] || {
+  printf 'Missing %s: the cost-guard release pin has no single source.\n' "$pin_file" >&2
+  exit 1
+}
+pin=$(tr -d '[:space:]' < "$pin_file")
+if [[ ! "$pin" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+@v[0-9]+(\.[0-9]+\.[0-9]+)?$ ]]; then
+  printf 'The cost-guard pin must be owner/repo@vN or owner/repo@vN.N.N, not: %s\n' "$pin" >&2
+  exit 1
+fi
+pin_ref="${pin##*@}"
+
+# Every use of the action, in every workflow, must be that exact pin. A branch ref would
+# let what is denied change without a commit in this repository.
+guard_uses=0
+while IFS= read -r used; do
+  [[ -n "$used" ]] || continue
+  guard_uses=$((guard_uses + 1))
+  if [[ "$used" != "$pin" ]]; then
+    printf 'Workflow uses %s but the pin in %s is %s.\n' "$used" "$pin_file" "$pin" >&2
+    exit 1
+  fi
+done < <(grep -hEo 'uses:[[:space:]]*[A-Za-z0-9._-]+/cost-guard@[^[:space:]]+' \
+  .github/workflows/*.yml | sed 's/uses:[[:space:]]*//')
+if [[ "$guard_uses" -eq 0 ]]; then
+  printf 'No workflow uses the cost-guard action.\n' >&2
+  exit 1
+fi
+
+# --- the guarded plan hands the guard a file, and the guard still gates ---------------
+
+require 'tofu plan -input=false -no-color -json' "$workflow"
+require '>"$RUNNER_TEMP/tofu-plan.json" 2>"$RUNNER_TEMP/tofu-plan.err"' "$workflow"
+require "uses: ${pin}" "$workflow"
+require 'plan: ${{ runner.temp }}/tofu-plan.json' "$workflow"
+require 'id: cost-guard' "$workflow"
+require 'GUARD_OUTCOME: ${{ steps.cost-guard.outcome }}' "$workflow"
+require '[[ "$GUARD_OUTCOME" == "success" ]] || exit 1' "$workflow"
 for verdict in allow deny 'plan failure' undecidable; do
   require "echo \"${verdict}\" >> \"\$GITHUB_STEP_SUMMARY\"" "$workflow"
 done
+
+# The exit code must come from the guard step. Piping into the guard reports the last
+# process in the pipeline, which reads a plan that never ran as a clean plan.
+require_absent 'cost-guard\.sh|/dev/stdin|PIPESTATUS' "$workflow"
+# And the gate must not be excused. continue-on-error on the guard step would leave a
+# workflow that looks guarded and is not.
+require_absent 'continue-on-error' "$workflow"
+
+# The guard must still run before anything that could change infrastructure. Nothing here
+# applies today, and the assertion below keeps it that way; this one additionally pins the
+# ordering, so a future apply step cannot be inserted between the plan and the guard.
+plan_line=$(grep -n 'tofu plan -input=false -no-color -json' "$workflow" | head -n 1 | cut -d: -f1)
+guard_line=$(grep -n "uses: ${pin}" "$workflow" | head -n 1 | cut -d: -f1)
+if [[ -z "$plan_line" || -z "$guard_line" || "$guard_line" -le "$plan_line" ]]; then
+  printf 'The guard step must follow the plan step in %s.\n' "$workflow" >&2
+  exit 1
+fi
+if grep -nEi 'tofu[[:space:]]+(apply|destroy|import|taint|state[[:space:]]+(rm|mv|push))' "$workflow" >/dev/null; then
+  printf 'The guarded plan workflow must not change infrastructure.\n' >&2
+  exit 1
+fi
 require_absent 'client-secret|ARM_CLIENT_SECRET' "$workflow"
 if grep -Eqi 'tofu[[:space:]]+apply|terraform[[:space:]]+apply' .github/workflows/*.yml; then
   printf 'Workflows must not apply infrastructure.\n' >&2
   exit 1
 fi
 
+# --- the demonstration that the consumed action still behaves like the local one -------
+
 cost_guard=.github/workflows/cost-guard.yml
 require 'permissions:' "$cost_guard"
 require 'contents: read' "$cost_guard"
-require 'bash scripts/test-cost-guard.sh' "$cost_guard"
+require "uses: ${pin}" "$cost_guard"
+# The three exit outcomes, asserted through the action. `undecidable` failing is the one
+# most easily lost when moving to a wrapper, so it is named here rather than implied.
+require "assert 'clean plan'          'success/allow/0'" "$cost_guard"
+require "assert 'denied create'       'failure/deny/1'" "$cost_guard"
+require "assert 'unrecognizable'      'failure/undecidable/2'" "$cost_guard"
+require "assert 'empty plan'          'failure/undecidable/2'" "$cost_guard"
+# The agreement check reads the guard denylist out of the pinned release, at the same ref
+# the plan job's action is pinned to.
+require 'bash scripts/check-denylist-agreement.sh' "$cost_guard"
+require 'repository: martcoca/cost-guard' "$cost_guard"
+require "ref: ${pin_ref}" "$cost_guard"
+require 'COST_GUARD_DENYLIST:' "$cost_guard"
+require 'The agreement check must fail when Azure Policy has a hole' "$cost_guard"
+require 'The agreement check must fail when Policy covers a type the guard does not' "$cost_guard"
+require 'The agreement check must refuse to pass when it cannot read the guard denylist' "$cost_guard"
 printf 'CI contract checks passed.\n'
