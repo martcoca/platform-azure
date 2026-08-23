@@ -1,5 +1,10 @@
 name: Cost guard
 
+# This repository holds no guard and no denylist. Both travel with the pinned composite
+# action, so what is asserted here is the *consumption*: that the released action still
+# gates this repository's plans the way the deleted local copy did, and that the Azure
+# Policy denylist still agrees with the denylist the action actually carries.
+
 on:
   pull_request:
   push:
@@ -8,25 +13,167 @@ permissions:
   contents: read
 
 jobs:
-  fixtures:
+  action-contract:
+    name: The released action gates this repository's plans
     runs-on: ubuntu-latest
+    # Six inputs, the same six the deleted scripts/test-cost-guard.sh covered, now
+    # asserted through the released action rather than through a local script. The three
+    # failing steps carry continue-on-error so this job can assert that they failed: a
+    # job that actually goes red cannot exist in a repository whose merge gate requires
+    # green, and `outcome == failure` is the same fact recorded rather than acted on.
     steps:
       - uses: actions/checkout@v4
-      - name: Assert exact cost-guard exit codes
-        run: bash scripts/test-cost-guard.sh
+        with:
+          persist-credentials: false
+
+      - name: An empty plan file is not a clean plan
+        shell: bash
+        run: ': > "$RUNNER_TEMP/empty-plan.json"'
+
+      - name: A clean plan is allowed
+        id: clean
+        uses: martcoca/cost-guard@v1.0.0
+        with:
+          plan: tests/fixtures/plan-clean.json
+
+      - name: A denied create fails the step
+        id: denied
+        continue-on-error: true
+        uses: martcoca/cost-guard@v1.0.0
+        with:
+          plan: tests/fixtures/plan-with-nat.json
+
+      - name: A denied create in event-stream form fails the step
+        id: denied-events
+        continue-on-error: true
+        uses: martcoca/cost-guard@v1.0.0
+        with:
+          plan: tests/fixtures/plan-events-with-nat.jsonl
+
+      - name: An errored plan fails closed
+        id: errored
+        continue-on-error: true
+        uses: martcoca/cost-guard@v1.0.0
+        with:
+          plan: tests/fixtures/plan-errored.jsonl
+
+      - name: Unrecognizable input fails closed
+        id: unrecognizable
+        continue-on-error: true
+        uses: martcoca/cost-guard@v1.0.0
+        with:
+          plan: tests/fixtures/plan-unrecognizable.txt
+
+      - name: An empty plan fails closed
+        id: empty
+        continue-on-error: true
+        uses: martcoca/cost-guard@v1.0.0
+        with:
+          plan: ${{ runner.temp }}/empty-plan.json
+
+      - name: Assert every outcome, including that undecidable is no softer than denied
+        shell: bash
+        env:
+          CLEAN: ${{ steps.clean.outcome }}/${{ steps.clean.outputs.verdict }}/${{ steps.clean.outputs.exit-code }}
+          DENIED: ${{ steps.denied.outcome }}/${{ steps.denied.outputs.verdict }}/${{ steps.denied.outputs.exit-code }}
+          DENIED_EVENTS: ${{ steps.denied-events.outcome }}/${{ steps.denied-events.outputs.verdict }}/${{ steps.denied-events.outputs.exit-code }}
+          ERRORED: ${{ steps.errored.outcome }}/${{ steps.errored.outputs.verdict }}/${{ steps.errored.outputs.exit-code }}
+          UNRECOGNIZABLE: ${{ steps.unrecognizable.outcome }}/${{ steps.unrecognizable.outputs.verdict }}/${{ steps.unrecognizable.outputs.exit-code }}
+          EMPTY: ${{ steps.empty.outcome }}/${{ steps.empty.outputs.verdict }}/${{ steps.empty.outputs.exit-code }}
+        run: |
+          set -euo pipefail
+          failed=0
+          assert() {
+            local label=$1 want=$2 got=$3
+            if [[ "$got" != "$want" ]]; then
+              printf '%s: expected %s, got %s\n' "$label" "$want" "$got" >&2
+              failed=1
+            else
+              printf '%s: %s\n' "$label" "$got"
+            fi
+          }
+          assert 'clean plan'          'success/allow/0'       "$CLEAN"
+          assert 'denied create'       'failure/deny/1'        "$DENIED"
+          assert 'denied create (events)' 'failure/deny/1'     "$DENIED_EVENTS"
+          assert 'errored plan'        'failure/undecidable/2' "$ERRORED"
+          assert 'unrecognizable'      'failure/undecidable/2' "$UNRECOGNIZABLE"
+          assert 'empty plan'          'failure/undecidable/2' "$EMPTY"
+          [[ "$failed" -eq 0 ]] || {
+            printf '\nThe released action no longer gates this repository as required.\n' >&2
+            exit 1
+          }
 
   denylist-agreement:
+    name: The Policy denylist and the guard denylist agree
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # The comparison reads the denylist out of the pinned release, so it compares
+      # against exactly the bytes the plan job's guard uses. A vendored mirror would have
+      # reintroduced the copy this packet exists to remove.
+      - name: Check out the pinned cost-guard release
+        uses: actions/checkout@v4
+        with:
+          repository: martcoca/cost-guard
+          ref: v1.0.0
+          path: .cost-guard-release
+          persist-credentials: false
+
       - name: The Policy denylist and the guard denylist must agree
+        env:
+          COST_GUARD_DENYLIST: ${{ github.workspace }}/.cost-guard-release/config/cost-guard-denylist.json
         run: bash scripts/check-denylist-agreement.sh
-      - name: The agreement check must be able to fail
+
+      # Both directions of the negative case. The guard denylist is upstream and must not
+      # be touched, so the disagreement is seeded in the Azure Policy file, which is this
+      # repository's own artifact.
+      - name: The agreement check must fail when Azure Policy has a hole
+        env:
+          COST_GUARD_DENYLIST: ${{ github.workspace }}/.cost-guard-release/config/cost-guard-denylist.json
         run: |
-          jq 'map(select(.resource_type != "azurerm_firewall"))' \
-            config/cost-guard-denylist.json > "$RUNNER_TEMP/holed.json"
-          cp "$RUNNER_TEMP/holed.json" config/cost-guard-denylist.json
+          set -euo pipefail
+          cp config/azure-policy-denylist.json "$RUNNER_TEMP/policy-denylist.orig"
+          jq 'map(select(.azure_type != "Microsoft.Network/azureFirewalls"))' \
+            "$RUNNER_TEMP/policy-denylist.orig" > config/azure-policy-denylist.json
           if bash scripts/check-denylist-agreement.sh; then
-            echo "Expected a hole in the guard denylist to be reported." >&2
+            echo "Expected azurerm_firewall to be reported as denied by the guard but not by Policy." >&2
             exit 1
           fi
+          cp "$RUNNER_TEMP/policy-denylist.orig" config/azure-policy-denylist.json
+          bash scripts/check-denylist-agreement.sh
+
+      - name: The agreement check must fail when Policy covers a type the guard does not
+        env:
+          COST_GUARD_DENYLIST: ${{ github.workspace }}/.cost-guard-release/config/cost-guard-denylist.json
+        run: |
+          set -euo pipefail
+          cp config/azure-policy-denylist.json "$RUNNER_TEMP/policy-denylist.orig"
+          jq '. + [{"azure_type": "Microsoft.Test/neverGuarded",
+                    "tofu_types": ["azurerm_never_guarded"]}]' \
+            "$RUNNER_TEMP/policy-denylist.orig" > config/azure-policy-denylist.json
+          if bash scripts/check-denylist-agreement.sh; then
+            echo "Expected azurerm_never_guarded to be reported as absent from the guard." >&2
+            exit 1
+          fi
+          cp "$RUNNER_TEMP/policy-denylist.orig" config/azure-policy-denylist.json
+          bash scripts/check-denylist-agreement.sh
+
+      # The comparison must not be able to pass by not happening. Pointed at a denylist
+      # that is not there, the check has to refuse rather than report agreement.
+      - name: The agreement check must refuse to pass when it cannot read the guard denylist
+        env:
+          COST_GUARD_DENYLIST: ${{ runner.temp }}/there-is-no-denylist-here.json
+        run: |
+          set -euo pipefail
+          set +e
+          bash scripts/check-denylist-agreement.sh
+          status=$?
+          set -e
+          if [[ "$status" -eq 0 ]]; then
+            echo "The agreement check reported agreement without a guard denylist." >&2
+            exit 1
+          fi
+          printf 'refused with exit %s, as required\n' "$status"

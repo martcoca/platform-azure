@@ -1,5 +1,10 @@
 name: Guarded OpenTofu plan
 
+# The cost guard is not in this repository. It is consumed as a pinned composite action
+# from martcoca/cost-guard, so this repository holds neither the guard nor its denylist.
+# The pin is recorded once in config/cost-guard-action.txt and asserted against every
+# `uses:` below by scripts/check-ci-contract.sh.
+
 on:
   push:
     branches: [main]
@@ -44,22 +49,48 @@ jobs:
             -backend-config="storage_account_name=${TF_VAR_state_storage_account_name}" \
             -backend-config="container_name=${TF_VAR_state_container_name}" \
             >"$RUNNER_TEMP/tofu-init.log" 2>&1
-      - name: Run the guarded plan
+      - name: Write the plan to a file
         shell: bash
         run: |
-          set -euo pipefail
-          set +e
-          tofu plan -input=false -no-color -json 2>"$RUNNER_TEMP/tofu-plan.err" | bash scripts/cost-guard.sh /dev/stdin \
-            >"$RUNNER_TEMP/cost-guard.out" 2>"$RUNNER_TEMP/cost-guard.err"
-          statuses=("${PIPESTATUS[@]}")
-          set -e
-
-          if [[ "${statuses[0]}" -ne 0 ]]; then
+          set -uo pipefail
+          # The plan goes to a file, and the guard is handed the path. It is deliberately
+          # not piped: `tofu plan | guard` reports the *guard's* status, so a plan that
+          # never ran reads as a clean plan. That has already produced a wrong conclusion
+          # in this organization once.
+          tofu plan -input=false -no-color -json \
+            >"$RUNNER_TEMP/tofu-plan.json" 2>"$RUNNER_TEMP/tofu-plan.err"
+          status=$?
+          if [[ "$status" -ne 0 ]]; then
             echo "plan failure" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
-          case "${statuses[1]}" in
-            0) echo "allow" >> "$GITHUB_STEP_SUMMARY" ;;
-            1) echo "deny" >> "$GITHUB_STEP_SUMMARY"; exit 1 ;;
-            *) echo "undecidable" >> "$GITHUB_STEP_SUMMARY"; exit 1 ;;
+      # The gate. The action exits 0 / 1 / 2 and the step carries that exit code, so a
+      # denial and an undecidable verdict both fail the job on their own. This step gets
+      # no failure excuse, and check-ci-contract.sh forbids one anywhere in this file —
+      # a guard that is allowed to fail is a workflow that looks guarded and is not.
+      - name: Cost guard
+        id: cost-guard
+        uses: martcoca/cost-guard@v1.0.0
+        with:
+          plan: ${{ runner.temp }}/tofu-plan.json
+      - name: Record the guard verdict
+        if: always()
+        shell: bash
+        env:
+          GUARD_OUTCOME: ${{ steps.cost-guard.outcome }}
+          GUARD_VERDICT: ${{ steps.cost-guard.outputs.verdict }}
+        run: |
+          set -euo pipefail
+          # Reporting only. The job was already failed by the guard step if the guard
+          # failed; this must never be the thing that decides, and it must never turn a
+          # failed guard into a passing job — hence the re-assertion at the end.
+          if [[ -z "$GUARD_OUTCOME" || "$GUARD_OUTCOME" == "skipped" ]]; then
+            echo "undecidable" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          case "$GUARD_VERDICT" in
+            allow) echo "allow" >> "$GITHUB_STEP_SUMMARY" ;;
+            deny)  echo "deny" >> "$GITHUB_STEP_SUMMARY" ;;
+            *)     echo "undecidable" >> "$GITHUB_STEP_SUMMARY" ;;
           esac
+          [[ "$GUARD_OUTCOME" == "success" ]] || exit 1

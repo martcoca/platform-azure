@@ -7,7 +7,7 @@ Check, and enough context to execute without reading another repository.
 
 | # | Packet | Status | Is |
 |---|---|---|---|
-| 1 | [`0010-E01-T02.md`](0010-E01-T02.md) | not started | Consume the released cost guard action and delete this repository's local copies, without losing the Azure Policy agreement check |
+| 1 | [`0010-E01-T02.md`](0010-E01-T02.md) | done | Consume the released cost guard action and delete this repository's local copies, without losing the Azure Policy agreement check |
 
 Take the packet the Founder names. Otherwise take the next one in this table whose
 `Status:` is not `done`. The table is the order; the numbers are only identity.

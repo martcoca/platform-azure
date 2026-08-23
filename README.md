@@ -22,7 +22,7 @@ So this landing zone inverts the usual order:
 | Control | Strength | Where |
 |---|---|---|
 | Azure Policy `Deny` on 13 resource types | server-side, unbypassable | subscription scope |
-| CI cost guard | fails a plan before apply, with a named resource and price | `scripts/cost-guard.sh` |
+| CI cost guard | fails a plan before apply, with a named resource and price | `martcoca/cost-guard@v1.0.0` |
 | Scale-to-zero architecture | nothing standing to bill | consuming repositories |
 | Budget alerting at $0.01 actual, $1.00 forecast | notification only | subscription scope |
 
@@ -30,14 +30,25 @@ The reasoning is recorded in ADR-0039 in the doctrine repository.
 
 ### The two denylists are one list
 
-`config/azure-policy-denylist.json` drives Azure Policy.
-`config/cost-guard-denylist.json` drives the CI guard. A type denied in one and
-permitted by the other is a hole that gets found by accident, so agreement is a test
-rather than a convention:
+`config/azure-policy-denylist.json` drives Azure Policy. The guard denylist is not in
+this repository at all: it travels with the released cost-guard action, pinned once in
+`config/cost-guard-action.txt`. A type denied in one and permitted by the other is a
+hole that gets found by accident, so agreement is a test rather than a convention:
 
 ```bash
 scripts/check-denylist-agreement.sh
 ```
+
+With no arguments it fetches the guard denylist from the pinned release with `gh`. CI
+instead checks that release out and points the script at it:
+
+```bash
+COST_GUARD_DENYLIST=<checkout>/config/cost-guard-denylist.json scripts/check-denylist-agreement.sh
+```
+
+Either way the comparison is against the release CI actually runs, never against a local
+copy — there is none to be stale. If the denylist cannot be read the check exits 2 rather
+than reporting agreement it did not perform.
 
 It runs in CI on every push, in both directions — Policy types absent from the guard,
 and `azurerm_*` guard types absent from Policy. `--live` additionally diffs the
@@ -138,7 +149,6 @@ Run these without cloud authentication:
 ```bash
 tofu fmt -check -recursive .
 tofu validate
-scripts/test-cost-guard.sh
 scripts/check-denylist-agreement.sh
 scripts/check-ci-contract.sh
 ```
