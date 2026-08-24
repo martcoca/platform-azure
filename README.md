@@ -151,6 +151,7 @@ tofu fmt -check -recursive .
 tofu validate
 scripts/check-denylist-agreement.sh
 scripts/check-ci-contract.sh
+scripts/test-ci-contract.sh
 ```
 
 ## A fresh subscription registers nothing

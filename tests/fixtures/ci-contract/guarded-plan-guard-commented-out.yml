@@ -1,0 +1,105 @@
+# NEGATIVE FIXTURE — not a workflow. Never place this under .github/workflows/.
+#
+# A copy of guarded-plan.yml with the guard step deleted and replaced by a comment that
+# names it. scripts/test-ci-contract.sh runs the contract check against a tree carrying
+# this file as the guarded plan and requires the check to FAIL.
+#
+# Before 0010-E01-T06 the check passed against exactly this file, because every assertion
+# was a fixed-string grep and a comment satisfies one.
+name: Guarded OpenTofu plan
+
+# The cost guard is not in this repository. It is consumed as a pinned composite action
+# from martcoca/cost-guard, so this repository holds neither the guard nor its denylist.
+# The pin is recorded once in config/cost-guard-action.txt and asserted against every
+# `uses:` below by scripts/check-ci-contract.sh.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    env:
+      ARM_USE_OIDC: "true"
+      ARM_STORAGE_USE_AZUREAD: "true"
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      TF_VAR_azure_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      TF_VAR_azure_tenant_id: ${{ secrets.AZURE_TENANT_ID }}
+      TF_VAR_resource_group_name: ${{ secrets.AZURE_RESOURCE_GROUP }}
+      TF_VAR_state_storage_account_name: ${{ secrets.AZURE_STATE_STORAGE_ACCOUNT }}
+      TF_VAR_state_container_name: ${{ secrets.AZURE_STATE_CONTAINER }}
+      TF_VAR_github_oidc_subject: ${{ secrets.AZURE_GITHUB_OIDC_SUBJECT }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: 1.12.5
+          tofu_wrapper: false
+      - name: Initialize the AzureRM backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          tofu init -input=false -no-color \
+            -backend-config="resource_group_name=${TF_VAR_resource_group_name}" \
+            -backend-config="storage_account_name=${TF_VAR_state_storage_account_name}" \
+            -backend-config="container_name=${TF_VAR_state_container_name}" \
+            >"$RUNNER_TEMP/tofu-init.log" 2>&1
+      - name: Write the plan to a file
+        shell: bash
+        run: |
+          set -uo pipefail
+          # The plan goes to a file, and the guard is handed the path. It is deliberately
+          # not piped: `tofu plan | guard` reports the *guard's* status, so a plan that
+          # never ran reads as a clean plan. That has already produced a wrong conclusion
+          # in this organization once.
+          tofu plan -input=false -no-color -json \
+            >"$RUNNER_TEMP/tofu-plan.json" 2>"$RUNNER_TEMP/tofu-plan.err"
+          status=$?
+          if [[ "$status" -ne 0 ]]; then
+            echo "plan failure" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+      # The gate used to live here. It was:
+      #
+      #   - name: Cost guard
+      #     id: cost-guard
+      #     uses: martcoca/cost-guard@v1.0.1
+      #     with:
+      #       plan: ${{ runner.temp }}/tofu-plan.json
+      #
+      # Temporarily removed. Everything the contract check looks for is still written
+      # above, so a fixed-string check reports this file as guarded. Nothing guards it.
+      - name: Record the guard verdict
+        if: always()
+        shell: bash
+        env:
+          GUARD_OUTCOME: ${{ steps.cost-guard.outcome }}
+          GUARD_VERDICT: ${{ steps.cost-guard.outputs.verdict }}
+        run: |
+          set -euo pipefail
+          # Reporting only. The job was already failed by the guard step if the guard
+          # failed; this must never be the thing that decides, and it must never turn a
+          # failed guard into a passing job — hence the re-assertion at the end.
+          if [[ -z "$GUARD_OUTCOME" || "$GUARD_OUTCOME" == "skipped" ]]; then
+            echo "undecidable" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          case "$GUARD_VERDICT" in
+            allow) echo "allow" >> "$GITHUB_STEP_SUMMARY" ;;
+            deny)  echo "deny" >> "$GITHUB_STEP_SUMMARY" ;;
+            *)     echo "undecidable" >> "$GITHUB_STEP_SUMMARY" ;;
+          esac
+          [[ "$GUARD_OUTCOME" == "success" ]] || exit 1
