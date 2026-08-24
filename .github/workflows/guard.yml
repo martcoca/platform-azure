@@ -43,6 +43,9 @@ jobs:
       - name: Push workflows are dispatchable after an auto-merge
         run: scripts/post-merge-workflows.sh check
 
+      - name: The CI contract check holds its own contract
+        run: scripts/test-ci-contract.sh
+
       - name: Shell scripts parse
         run: |
           set -euo pipefail
