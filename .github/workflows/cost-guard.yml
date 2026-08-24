@@ -33,14 +33,14 @@ jobs:
 
       - name: A clean plan is allowed
         id: clean
-        uses: martcoca/cost-guard@v1.0.0
+        uses: martcoca/cost-guard@v1.0.1
         with:
           plan: tests/fixtures/plan-clean.json
 
       - name: A denied create fails the step
         id: denied
         continue-on-error: true
-        uses: martcoca/cost-guard@v1.0.0
+        uses: martcoca/cost-guard@v1.0.1
         with:
           plan: tests/fixtures/plan-with-nat.json
 
@@ -53,35 +53,35 @@ jobs:
       - name: A denied Cloud NAT create fails the step
         id: cloud-nat
         continue-on-error: true
-        uses: martcoca/cost-guard@v1.0.0
+        uses: martcoca/cost-guard@v1.0.1
         with:
           plan: tests/fixtures/plan-with-cloud-nat.json
 
       - name: A denied create in event-stream form fails the step
         id: denied-events
         continue-on-error: true
-        uses: martcoca/cost-guard@v1.0.0
+        uses: martcoca/cost-guard@v1.0.1
         with:
           plan: tests/fixtures/plan-events-with-nat.jsonl
 
       - name: An errored plan fails closed
         id: errored
         continue-on-error: true
-        uses: martcoca/cost-guard@v1.0.0
+        uses: martcoca/cost-guard@v1.0.1
         with:
           plan: tests/fixtures/plan-errored.jsonl
 
       - name: Unrecognizable input fails closed
         id: unrecognizable
         continue-on-error: true
-        uses: martcoca/cost-guard@v1.0.0
+        uses: martcoca/cost-guard@v1.0.1
         with:
           plan: tests/fixtures/plan-unrecognizable.txt
 
       - name: An empty plan fails closed
         id: empty
         continue-on-error: true
-        uses: martcoca/cost-guard@v1.0.0
+        uses: martcoca/cost-guard@v1.0.1
         with:
           plan: ${{ runner.temp }}/empty-plan.json
 
@@ -134,7 +134,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: martcoca/cost-guard
-          ref: v1.0.0
+          ref: v1.0.1
           path: .cost-guard-release
           persist-credentials: false
 
