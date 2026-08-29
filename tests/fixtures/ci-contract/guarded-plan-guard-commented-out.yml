@@ -76,7 +76,7 @@ jobs:
       #
       #   - name: Cost guard
       #     id: cost-guard
-      #     uses: martcoca/cost-guard@v1.0.1
+      #     uses: martcoca/cost-guard@v1.0.2
       #     with:
       #       plan: ${{ runner.temp }}/tofu-plan.json
       #
