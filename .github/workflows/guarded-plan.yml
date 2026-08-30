@@ -73,6 +73,33 @@ jobs:
         uses: martcoca/cost-guard@v1.0.2
         with:
           plan: ${{ runner.temp }}/tofu-plan.json
+      # Freshness is a separate signal from the verdict and deliberately downstream of it.
+      # `if: always()` so a denied plan — the moment when running an old guard matters most
+      # — still reports whether the pin is behind. fail-on-stale is false here because this
+      # job's job is the plan: a pin being old must never fail a build whose plan is fine,
+      # and a lookup that cannot happen must never touch the verdict at all.
+      - name: Read the cost guard pin
+        id: pin
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          pin=$(tr -d '[:space:]' < config/cost-guard-action.txt)
+          echo "pin=$pin" >> "$GITHUB_OUTPUT"
+      - name: Cost guard freshness
+        if: always()
+        # This step may never fail the plan job, and that is not belt-and-braces. A failed
+        # release lookup makes the action write the API's multi-line JSON error body into
+        # $GITHUB_OUTPUT as if it were a commit SHA; those lines are not key=value and are
+        # not wrapped in the delimiter syntax Actions requires, so the runner rejects the
+        # file and fails the step. Without this, a GitHub hiccup would fail a guarded plan
+        # whose plan is fine — the network dependency this action exists to keep out.
+        # Reported upstream; see evidence/0010-E02-T05.md.
+        continue-on-error: true
+        uses: martcoca/cost-guard/freshness@v1
+        with:
+          pin: ${{ steps.pin.outputs.pin }}
+          fail-on-stale: 'false'
       - name: Record the guard verdict
         if: always()
         shell: bash

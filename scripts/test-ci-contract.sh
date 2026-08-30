@@ -115,6 +115,49 @@ else
   report 'a real uses: @main is rejected as unpinned' fail
 fi
 
+# --- 5. deleting the freshness step must fail the check -------------------------------
+#
+# The reporter is not a gate, so nothing else notices if it quietly goes away. That is
+# precisely why its absence has to be an error rather than a silence.
+
+dest=$(scratch_tree no-freshness)
+grep -v 'uses: martcoca/cost-guard/freshness@' "$dest/$plan_workflow" > "$dest/$plan_workflow.tmp"
+mv "$dest/$plan_workflow.tmp" "$dest/$plan_workflow"
+status=$(run_check "$dest")
+if [[ "$status" -ne 0 ]] && grep -Fq 'freshness@v1' "$tmp_root/out"; then
+  report 'deleting the freshness step from the plan job fails the check' pass
+else
+  report "deleting the freshness step from the plan job fails the check (exit $status)" fail
+fi
+
+# And the same for the scheduled workflow, whose whole purpose is to run when nobody is
+# watching — the one most easily deleted without anyone missing it.
+
+dest=$(scratch_tree no-schedule)
+rm -f "$dest/.github/workflows/cost-guard-freshness.yml"
+status=$(run_check "$dest")
+if [[ "$status" -ne 0 ]]; then
+  report 'deleting the scheduled freshness workflow fails the check' pass
+else
+  report 'deleting the scheduled freshness workflow fails the check (it PASSED)' fail
+fi
+
+# --- 7. the narrowed continue-on-error rule still protects the guard ------------------
+#
+# The blanket ban became a targeted one when the freshness step needed the flag. That is a
+# weakening unless the guard is still covered, so this asserts the part that matters.
+
+dest=$(scratch_tree excused-guard)
+awk '{ print } /^[[:space:]]*id: cost-guard[[:space:]]*$/ { print "        continue-on-error: true" }' \
+  "$dest/$plan_workflow" > "$dest/plan.tmp"
+mv "$dest/plan.tmp" "$dest/$plan_workflow"
+status=$(run_check "$dest")
+if [[ "$status" -ne 0 ]] && grep -Fq 'allowed on the freshness step and nowhere else' "$tmp_root/out"; then
+  report 'excusing the guard step with continue-on-error still fails the check' pass
+else
+  report "excusing the guard step with continue-on-error still fails the check (exit $status)" fail
+fi
+
 if [[ "$failed" -ne 0 ]]; then
   printf '\nThe contract check does not hold its own contract.\n' >&2
   exit 1
