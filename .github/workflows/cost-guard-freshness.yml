@@ -1,0 +1,74 @@
+name: Cost guard freshness
+
+# Detection, not enforcement. The guard decides whether a plan is allowed; this decides
+# nothing and only reports whether the guard this repository runs is the current one.
+#
+# It exists because the alternative was a human noticing. Between v1.0.1 and v1.0.2 this
+# repository ran a guard that took 391 seconds on a realistically-sized plan, and nothing
+# here said so — it was found because someone happened to look at a slow job. A repository
+# nobody pushes to is the one most likely to drift, so this runs on a schedule rather than
+# waiting for a push that may never come.
+
+on:
+  # Daily. A release can land on any day, and a weekly cadence would mean up to seven days
+  # of running a guard whose newest denial is not in force here. The cost is one API call.
+  schedule:
+    - cron: '23 6 * * *'
+  # On pull requests it reports and does not block: staleness is unrelated to whatever the
+  # pull request is about, and a gate that fails work it has nothing to do with gets
+  # disabled. The scheduled run is where it is not ignorable.
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  freshness:
+    name: The pinned cost guard is the current release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Read rather than repeat. The version string already appears in every `uses:` in
+      # this repository; adding another literal here would be one more place to forget.
+      - name: Read the cost guard pin
+        id: pin
+        shell: bash
+        run: |
+          set -euo pipefail
+          pin=$(tr -d '[:space:]' < config/cost-guard-action.txt)
+          echo "pin=$pin" >> "$GITHUB_OUTPUT"
+
+      # Pinned to the major line, not to the guard's own pin, and that is deliberate. The
+      # guard is pinned immutably so that what is denied cannot change without a commit
+      # here; the reporter denies nothing, so that reason does not apply to it. More
+      # importantly, freshness/action.yml does not exist at v1.0.1 — a consumer pinned
+      # there could not run this action at all, and the detector would break at exactly the
+      # staleness it exists to detect. scripts/check-ci-contract.sh derives this ref from
+      # config/cost-guard-action.txt, so it cannot drift to another repository or a branch.
+      - name: Cost guard freshness
+        id: freshness
+        # Allowed to fail only on the schedule. Everywhere else this reports and does not
+        # block: a broken release lookup makes the action write unparseable lines into
+        # $GITHUB_OUTPUT (see evidence/0010-E02-T05.md), and a pull request must not go red
+        # because GitHub's API was briefly unhappy about something it did not touch.
+        continue-on-error: ${{ github.event_name != 'schedule' }}
+        uses: martcoca/cost-guard/freshness@v1
+        with:
+          pin: ${{ steps.pin.outputs.pin }}
+          # True only on the schedule. `unknown` never fails the step whatever this says,
+          # which is what keeps a lookup that did not happen from being treated as a fault.
+          fail-on-stale: ${{ github.event_name == 'schedule' }}
+
+      - name: Report what it found
+        if: always()
+        shell: bash
+        env:
+          STATUS: ${{ steps.freshness.outputs.status }}
+          DETAIL: ${{ steps.freshness.outputs.detail }}
+        run: |
+          set -euo pipefail
+          printf 'status: %s\ndetail: %s\n' "${STATUS:-unknown}" "${DETAIL:-no detail reported}"

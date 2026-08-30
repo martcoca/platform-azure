@@ -18,7 +18,7 @@ name: Auto-merge
 
 on:
   workflow_run:
-    workflows: ["Guard", "Cost guard", "Guarded OpenTofu plan", "Verify keyless Azure identity"]
+    workflows: ["Guard", "Cost guard", "Cost guard freshness", "Guarded OpenTofu plan", "Verify keyless Azure identity"]
     types: [completed]
 
 permissions:

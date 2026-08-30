@@ -54,6 +54,18 @@ It runs in CI on every push, in both directions — Policy types absent from the
 and `azurerm_*` guard types absent from Policy. `--live` additionally diffs the
 committed file against the real assignment, so drift applied by hand is caught too.
 
+### Knowing when the guard is out of date
+
+Agreement is not the same as currency: the two lists can match perfectly while the guard
+producing them is an old release whose newest denial is not in force here. The
+`Cost guard freshness` workflow answers that separately, daily on a schedule and on every
+pull request. On the schedule a stale pin fails the run; on a pull request it only reports,
+because staleness has nothing to do with whatever the pull request changed.
+
+It reports `current`, `behind`, or `unknown` — never `current` because it could not ask.
+Bumping the pin means editing `config/cost-guard-action.txt` and every `uses:` that
+references it; `scripts/check-ci-contract.sh` fails if they disagree.
+
 `scripts/apply-policy-denylist.sh <subscription-id>` prints the diff between the
 committed list and the live assignment; `--apply` writes it. Assignment needs Owner on
 the subscription, so changing the denylist is deliberately not a pull request.

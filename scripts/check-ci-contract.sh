@@ -214,9 +214,21 @@ require_line '\*\)[[:space:]]+echo "undecidable" >> "\$GITHUB_STEP_SUMMARY"[[:sp
 # The exit code must come from the guard step. Piping into the guard reports the last
 # process in the pipeline, which reads a plan that never ran as a clean plan.
 require_absent 'cost-guard\.sh|/dev/stdin|PIPESTATUS' "$workflow"
-# And the gate must not be excused. continue-on-error on the guard step would leave a
-# workflow that looks guarded and is not.
-require_absent 'continue-on-error' "$workflow"
+# The gate must not be excused: continue-on-error on the guard step would leave a workflow
+# that looks guarded and is not. But the freshness step needs exactly that flag, for the
+# opposite reason — a reporter able to fail the plan job is a network dependency on the
+# verdict path, which is the thing the guard/freshness split exists to prevent.
+#
+# So the flag is not forbidden outright; it is confined to that one step. Anywhere else in
+# this file, including on the guard, it is still a failure.
+coe_total=$(grep -cE '^[[:space:]]*continue-on-error:' "$workflow" || true)
+coe_freshness=$(awk '/^[[:space:]]*- name: Cost guard freshness[[:space:]]*$/{f=1;next} /^[[:space:]]*- name: /{f=0} f' "$workflow" \
+  | grep -cE '^[[:space:]]*continue-on-error:[[:space:]]*true[[:space:]]*$' || true)
+if [[ "$coe_total" -ne 1 || "$coe_freshness" -ne 1 ]]; then
+  printf 'continue-on-error in %s is allowed on the freshness step and nowhere else.\n' "$workflow" >&2
+  printf 'Found %s in the file, %s of them on the freshness step.\n' "$coe_total" "$coe_freshness" >&2
+  exit 1
+fi
 
 # The guard must still run before anything that could change infrastructure. Nothing here
 # applies today, and the assertion below keeps it that way; this one additionally pins the
@@ -258,6 +270,52 @@ require_line 'COST_GUARD_DENYLIST: .+' "$cost_guard"
 require_line '- name: The agreement check must fail when Azure Policy has a hole' "$cost_guard"
 require_line '- name: The agreement check must fail when Policy covers a type the guard does not' "$cost_guard"
 require_line '- name: The agreement check must refuse to pass when it cannot read the guard denylist' "$cost_guard"
+# --- freshness: a separate signal, held to the same source of truth --------------------
+#
+# The guard says whether a plan is allowed. This says whether the guard saying it is the
+# current one. They are separate on purpose — a release lookup must never be able to
+# change a verdict — but the two pins must not be able to drift apart, so the reporter's
+# ref is derived from the same file rather than written out again.
+#
+# It is pinned to the major line, not to the guard's exact release, and that is the one
+# deliberate asymmetry here. The guard is pinned immutably so what is denied cannot change
+# without a commit in this repository; the reporter denies nothing, so that reason does not
+# apply. More to the point, freshness/action.yml does not exist at v1.0.1: a consumer
+# pinned there could not run the reporter at all, and a detector that breaks at the
+# staleness it detects is worse than none.
+pin_slug="${pin%@*}"
+pin_major="${pin_ref%%.*}"
+freshness_uses="${pin_slug}/freshness@${pin_major}"
+
+require_line "uses: ${freshness_uses//./\\.}" "$workflow"
+require_line 'id: pin' "$workflow"
+require_line "pin: \\\$\\{\\{ steps\\.pin\\.outputs\\.pin \\}\\}" "$workflow"
+# Never true in the plan job. A stale pin is worth knowing about; it is not worth failing
+# a build whose plan is fine, and the packet that added this said so explicitly.
+require_line "fail-on-stale: 'false'" "$workflow"
+# Reported even when the guard denied — that is the moment an old guard matters most.
+require_line '- name: Cost guard freshness' "$workflow"
+
+freshness_workflow=.github/workflows/cost-guard-freshness.yml
+require_line 'schedule:' "$freshness_workflow"
+require_line '- cron: .[0-9 ,*/-]+.' "$freshness_workflow"
+require_line 'pull_request:' "$freshness_workflow"
+require_line 'workflow_dispatch:' "$freshness_workflow"
+require_line 'contents: read' "$freshness_workflow"
+require_line "uses: ${freshness_uses//./\\.}" "$freshness_workflow"
+require_line "pin: \\\$\\{\\{ steps\\.pin\\.outputs\\.pin \\}\\}" "$freshness_workflow"
+# Blocking only on the schedule. A gate that fails pull requests over something they did
+# not touch gets removed; one that only ever warns is not a gate at all.
+require_line "fail-on-stale: \\\$\\{\\{ github\\.event_name == 'schedule' \\}\\}" "$freshness_workflow"
+# Reports without blocking anywhere except the schedule, for the same reason the plan
+# job's copy can never fail: an unparseable lookup must not turn into a red pull request.
+require_line "continue-on-error: \\\$\\{\\{ github\\.event_name != 'schedule' \\}\\}" "$freshness_workflow"
+# The pin is read from its one source in both places, not written out a third time.
+for wf in "$workflow" "$freshness_workflow"; do
+  require_line "pin=\\\$\\(tr -d '\\[:space:\\]' < config/cost-guard-action\\.txt\\)" "$wf"
+  require_line 'echo "pin=\$pin" >> "\$GITHUB_OUTPUT"' "$wf"
+done
+
 # --- this check must actually run -----------------------------------------------------
 #
 # A contract check nobody invokes is a comment. It was one here until this packet: nothing
