@@ -6,6 +6,27 @@ state, and zero-cost guardrails.
 This root provides an Azure landing zone with provider-native cost controls, keyless
 GitHub Actions federation, and remote OpenTofu state.
 
+## Which account this repository targets
+
+**Select the subscription before running anything against the cloud:**
+
+```bash
+az account list --output table     # enumerate first
+az account set --subscription <the martcoca subscription>
+```
+
+The workstation carries credentials for more than one account, and the active one is
+whichever was used last. Enumerate before selecting — never take the CLI's current default as
+the account this repository belongs to. `doctrine/shared/cloud.md` has the enumeration command
+for each provider and the reason this is written down: a chief-of-staff once reasoned from the
+wrong account all the way to "the landing zone was never applied", when it had been live for
+weeks under a named configuration.
+
+The subscription and tenant identifiers themselves are **not recorded here** — they are
+identifiers and stay out of tracked files. The apply inputs live in
+`config/local/landing-zone.tfvars`, which this repository already keeps and which the other
+two platforms lacked.
+
 ## Azure cannot be capped, so it is fenced instead
 
 Pay-as-you-go subscriptions have no spending limit. Microsoft is explicit that the
