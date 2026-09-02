@@ -13,3 +13,8 @@ crash.log
 
 # CI checks out the pinned cost-guard release here; it is never committed.
 .cost-guard-release/
+
+# Doctrine forbids committing these. Enforced by scripts/check-ignore-contract.sh
+# after a saved plan carrying an OAuth client secret reached a public repository.
+runtime/
+*.tfvars
