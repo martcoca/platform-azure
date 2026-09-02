@@ -21,6 +21,8 @@ jobs:
   action-contract:
     name: The released action gates this repository's plans
     runs-on: ubuntu-latest
+    # A job with no cap can burn to GitHub's 6-hour default. One did: 4h19m.
+    timeout-minutes: 30
     # Six inputs, the same six the deleted scripts/test-cost-guard.sh covered, now
     # asserted through the released action rather than through a local script. The three
     # failing steps carry continue-on-error so this job can assert that they failed: a
@@ -126,6 +128,8 @@ jobs:
   denylist-agreement:
     name: The Policy denylist and the guard denylist agree
     runs-on: ubuntu-latest
+    # A job with no cap can burn to GitHub's 6-hour default. One did: 4h19m.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
